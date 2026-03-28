@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>A-Frame Solar System</title>
+    <script src="script/aframe.min.js"></script>
+    
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      #ui-panel {
+        position: fixed;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 999;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 14px 10px;
+        background: rgba(0, 5, 20, 0.75);
+        border-left: 1px solid rgba(100, 200, 255, 0.2);
+        border-top: 1px solid rgba(100, 200, 255, 0.2);
+        border-bottom: 1px solid rgba(100, 200, 255, 0.2);
+        border-radius: 12px 0 0 12px;
+        backdrop-filter: blur(10px);
+      }
+
+      .panel-title {
+        font-family: 'Arial', monospace;
+        font-size: 9px;
+        color: rgba(100, 200, 255, 0.5);
+        letter-spacing: 3px;
+        text-align: center;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+
+      .planet-btn {
+        font-family: 'Arial', monospace;
+        font-size: 11px;
+        color: rgba(200, 220, 255, 0.85);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(100, 200, 255, 0.15);
+        padding: 7px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-align: left;
+        white-space: nowrap;
+        letter-spacing: 0.5px;
+      }
+
+      .planet-btn:hover {
+        background: rgba(100, 200, 255, 0.15);
+        border-color: rgba(100, 200, 255, 0.5);
+        color: white;
+        transform: translateX(-2px);
+      }
+
+      .planet-btn.active {
+        background: rgba(100, 200, 255, 0.2);
+        border-color: rgba(100, 200, 255, 0.8);
+        color: #7df0ff;
+        box-shadow: 0 0 10px rgba(100, 200, 255, 0.2);
+      }
+
+      #divider {
+        height: 1px;
+        background: rgba(100, 200, 255, 0.15);
+        margin: 2px 0;
+      }
+
+      #back-btn {
+        font-family: 'Arial', monospace;
+        font-size: 11px;
+        color: rgba(255, 180, 100, 0.9);
+        background: rgba(255, 140, 0, 0.08);
+        border: 1px solid rgba(255, 140, 0, 0.3);
+        padding: 7px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: none;
+        letter-spacing: 0.5px;
+      }
+
+      #back-btn:hover {
+        background: rgba(255, 140, 0, 0.2);
+        border-color: rgba(255, 180, 100, 0.7);
+        color: #ffcc66;
+        transform: translateX(-2px);
+      }
+
+      #planet-label {
+        position: fixed;
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: 'Arial', monospace;
+        font-size: 22px;
+        font-weight: 700;
+        color: white;
+        text-shadow: 0 0 20px rgba(100, 200, 255, 0.8), 0 0 40px rgba(100, 200, 255, 0.4);
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+        pointer-events: none;
+        z-index: 999;
+      }
+
+      #planet-label.visible { opacity: 1; }
+      
+      #spin-note {
+        position: fixed;
+        bottom: 32px;
+        left: 20px;
+        font-family: 'Arial', monospace;
+        font-size: 9px;
+        color: rgba(255,255,255,0.18);
+        letter-spacing: 1.5px;
+        pointer-events: none;
+        z-index: 999;
+        line-height: 1.8;
+      }
+
+      #hint {
+        position: fixed;
+        bottom: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: 'Arial', monospace;
+        font-size: 9px;
+        color: rgba(255,255,255,0.2);
+        letter-spacing: 2px;
+        pointer-events: none;
+        z-index: 999;
+        white-space: nowrap;
+      }
+    </style>
+
+    <script>
+      /* ── Zoom distances per body ── */
+      const ZOOM_DIST = {
+        sun: 10, mercury: 2.2, venus: 3, earth: 3, moon: 1.2,
+        mars: 2.5, jupiter: 6, saturn: 6.5, uranus: 4.5, neptune: 4.5
+      };
+
+      let focusedPlanet = null;
+
+      /* ── ORBIT ── */
+      AFRAME.registerComponent('orbit', {
+        schema: { radius: {type:'number',default:5}, speed: {type:'number',default:0.5} },
+        init: function () { this.angle = Math.random() * Math.PI * 2; },
+        tick: function (t, dt) {
+          this.angle += this.data.speed * dt / 1000;
+          this.el.setAttribute('position', {
+            x: this.data.radius * Math.cos(this.angle),
+            y: 0,
+            z: -this.data.radius * Math.sin(this.angle)
+          });
+        }
+      });
+
+      /* ── SPIN ── */
+      AFRAME.registerComponent('spin', {
+        schema: { speed: {type:'number',default:30} },
+        tick: function (t, dt) {
+          const r = this.el.getAttribute('rotation');
+          r.y += this.data.speed * dt / 1000;
+          this.el.setAttribute('rotation', r);
+        }
+      });
+
+      /* ── FACE CAMERA ── */
+      AFRAME.registerComponent('face-camera', {
+        tick: function () {
+          const cam = document.querySelector('[camera]');
+          if (!cam) return;
+          const wp = new THREE.Vector3();
+          cam.object3D.getWorldPosition(wp);
+          this.el.object3D.lookAt(wp);
+        }
+      });
+
+      /* ── CAMERA CONTROLLER ── */
+      AFRAME.registerComponent('camera-controller', {
+        init: function () {
+          this.defaultPos = new THREE.Vector3(0, 6, 35);
+          this.tempWP     = new THREE.Vector3();
+        },
+        tick: function () {
+          if (focusedPlanet) {
+            const pEl = document.querySelector('#' + focusedPlanet + '-sphere');
+            if (!pEl) return;
+            pEl.object3D.getWorldPosition(this.tempWP);
+            const d = ZOOM_DIST[focusedPlanet] || 3;
+            const target = new THREE.Vector3(
+              this.tempWP.x,
+              this.tempWP.y + d * 0.25,
+              this.tempWP.z + d
+            );
+            this.el.object3D.position.lerp(target, 0.05);
+          } else {
+            this.el.object3D.position.lerp(this.defaultPos, 0.04);
+          }
+        }
+      });
+
+      /* ── UI FUNCTIONS ── */
+      function focusPlanet(name) {
+        focusedPlanet = name;
+        // disable WASD while zoomed so user doesn't drift away
+        const cam = document.querySelector('a-camera');
+        if (cam) cam.setAttribute('wasd-controls', 'enabled', false);
+
+        document.getElementById('back-btn').style.display = 'block';
+        document.querySelectorAll('.planet-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById('btn-' + name);
+        if (btn) btn.classList.add('active');
+
+        const label = document.getElementById('planet-label');
+        label.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        label.classList.add('visible');
+      }
+
+      function resetCamera() {
+        focusedPlanet = null;
+        const cam = document.querySelector('a-camera');
+        if (cam) cam.setAttribute('wasd-controls', 'enabled', true);
+        document.getElementById('back-btn').style.display = 'none';
+        document.querySelectorAll('.planet-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('planet-label').classList.remove('visible');
+      }
+
+      /* ── Wire up planet CLICK events after scene loads ── */
+      document.addEventListener('DOMContentLoaded', function () {
+        const scene = document.querySelector('a-scene');
+        scene.addEventListener('loaded', function () {
+          document.querySelectorAll('[data-planet]').forEach(function (el) {
+            el.addEventListener('click', function () {
+              focusPlanet(this.getAttribute('data-planet'));
+            });
+          });
+        });
+      });
+    </script>
+  </head>
+
+  <body>
+
+    <!-- ── Side Panel ── -->
+    <div id="ui-panel">
+      <div class="panel-title">Navigate</div>
+      <button class="planet-btn" id="btn-sun"     onclick="focusPlanet('sun')">☀ Sun</button>
+      <button class="planet-btn" id="btn-mercury" onclick="focusPlanet('mercury')">◉ Mercury</button>
+      <button class="planet-btn" id="btn-venus"   onclick="focusPlanet('venus')">◉ Venus</button>
+      <button class="planet-btn" id="btn-earth"   onclick="focusPlanet('earth')">◉ Earth</button>
+      <button class="planet-btn" id="btn-moon"    onclick="focusPlanet('moon')">◌ Moon</button>
+      <button class="planet-btn" id="btn-mars"    onclick="focusPlanet('mars')">◉ Mars</button>
+      <button class="planet-btn" id="btn-jupiter" onclick="focusPlanet('jupiter')">◉ Jupiter</button>
+      <button class="planet-btn" id="btn-saturn"  onclick="focusPlanet('saturn')">◉ Saturn</button>
+      <button class="planet-btn" id="btn-uranus"  onclick="focusPlanet('uranus')">◉ Uranus</button>
+      <button class="planet-btn" id="btn-neptune" onclick="focusPlanet('neptune')">◉ Neptune</button>
+      <div id="divider"></div>
+      <button id="back-btn" onclick="resetCamera()">↩ Overview</button>
+    </div>
+
+    <!-- Planet name overlay -->
+    <div id="planet-label"></div>
+    <div id="hint">CLICK ANY PLANET · USE PANEL TO NAVIGATE</div>
+
+    <a-scene>
+
+      <a-assets>
+        <img id="space"      src="texture/2k_stars_milky_way.jpg">
+        <img id="sunTex"     src="texture/2k_sun.jpg">
+        <img id="mercuryTex" src="texture/2k_mercury.jpg">
+        <img id="venusTex"   src="texture/2k_venus_surface.jpg">
+        <img id="earthTex"   src="texture/2k_earth_daymap.jpg">
+        <img id="moonTex"    src="texture/2k_moon.jpg">
+        <img id="marsTex"    src="texture/2k_mars.jpg">
+        <img id="jupiterTex" src="texture/2k_jupiter.jpg">
+        <img id="saturnTex"  src="texture/2k_saturn.jpg">
+        <img id="uranusTex"  src="texture/2k_uranus.jpg">
+        <img id="neptuneTex" src="texture/2k_neptune.jpg">
+        <img id="saturnRing" src="texture/2k_saturn_ring_alpha.png">
+      </a-assets>
+
+      <a-sky src="#space"></a-sky>
+
+      <!-- Mouse-based cursor for clicking planets -->
+      <a-entity cursor="rayOrigin: mouse" raycaster="objects: [data-planet]; far: 300"></a-entity>
+
+      <!-- Camera with smooth follow controller -->
+      <a-camera id="main-cam" camera-controller position="0 6 "
+                wasd-controls look-controls></a-camera>
+
+      <!-- ── Sun ── -->
+      <a-sphere id="sun-sphere" data-planet="sun"
+                position="0 0 0" radius="2.5" src="#sunTex" spin="speed: 12"></a-sphere>
+
+      <!-- ── Mercury ── -->
+      <a-entity orbit="radius: 5; speed: 0.5">
+        <a-sphere id="mercury-sphere" data-planet="mercury"
+                  radius="0.4" src="#mercuryTex" spin="speed: 6"></a-sphere>
+        <a-text value="Mercury" position="0 0.9 0" align="center" face-camera color="white" width="4"></a-text>
+      </a-entity>
+
+      <!-- ── Venus ── -->
+      <a-entity orbit="radius: 7; speed: 0.35">
+        <a-sphere id="venus-sphere" data-planet="venus"
+                  radius="0.7" src="#venusTex" spin="speed: -3"></a-sphere>
+        <a-text value="Venus" position="0 1.2 0" align="center" face-camera color="white" width="4"></a-text>
+      </a-entity>
+
+      <!-- ── Earth + Moon ── -->
+      <a-entity orbit="radius: 9; speed: 0.25">
+        <a-sphere id="earth-sphere" data-planet="earth"
+                  radius="0.8" src="#earthTex" spin="speed: 60"></a-sphere>
+        <a-text value="Earth" position="0 1.2 0" align="center" face-camera color="white" width="4"></a-text>
+        <a-entity orbit="radius: 1.5; speed: 0.7">
+          <a-sphere id="moon-sphere" data-planet="moon" radius="0.2" src="#moonTex" spin="speed: 7"></a-sphere>
+        </a-entity>
+      </a-entity>
+
+      <!-- ── Mars ── -->
+      <a-entity orbit="radius: 11; speed: 0.2">
+        <a-sphere id="mars-sphere" data-planet="mars"
+                  radius="0.6" src="#marsTex" spin="speed: 58.2"></a-sphere>
+        <a-text value="Mars" position="0 1.1 0" align="center" face-camera color="white" width="4"></a-text>
+      </a-entity>
+
+      <!-- ── Jupiter ── -->
+      <a-entity orbit="radius: 14; speed: 0.1">
+        <a-sphere id="jupiter-sphere" data-planet="jupiter"
+                  radius="1.5" src="#jupiterTex" spin="speed: 240"></a-sphere>
+        <a-text value="Jupiter" position="0 2 0" align="center" face-camera color="white" width="5"></a-text>
+      </a-entity>
+
+      <!-- ── Saturn + Rings ── -->
+      <a-entity orbit="radius: 18; speed: 0.08">
+        <a-sphere id="saturn-sphere" data-planet="saturn"
+                  radius="1.3" src="#saturnTex" spin="speed: 228"></a-sphere>
+        <a-ring src="#saturnRing" radius-inner="1.6" radius-outer="2.5" rotation="-75 0 0" spin="speed: 20"
+        material="side: double; transparent: true; opacity: 0.85;
+                  roughness: 0.7; metalness: 0.1; 
+                  repeat: 1 -1;"></a-ring>
+        <a-text value="Saturn" position="0 2.2 0" align="center" face-camera color="white" width="5"></a-text>
+      </a-entity>
+
+      <!-- ── Uranus ── -->
+      <a-entity orbit="radius: 22; speed: 0.05" rotation="0 0 98">
+        <a-sphere id="uranus-sphere" data-planet="uranus"
+                  radius="1.1" src="#uranusTex" spin="speed: -138"></a-sphere>
+        <a-text value="Uranus" position="0 1.8 0" align="center" face-camera color="white" width="5"></a-text>
+      </a-entity>
+
+      <!-- ── Neptune ── -->
+      <a-entity orbit="radius: 26; speed: 0.03">
+        <a-sphere id="neptune-sphere" data-planet="neptune"
+                  radius="1.1" src="#neptuneTex" spin="speed: 150"></a-sphere>
+        <a-text value="Neptune" position="0 1.8 0" align="center" face-camera color="white" width="5"></a-text>
+      </a-entity>
+
+      <!-- Lighting -->
+      <a-light type="point" position="0 0 0" intensity="2"></a-light>
+      <a-light type="ambient" intensity="0.4"></a-light>
+
+    </a-scene>
+  </body>
+</html>
